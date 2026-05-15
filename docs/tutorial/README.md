@@ -15,9 +15,66 @@ copy in a development cluster using all four `manon` commands.
 ## Prerequisites
 
 - `manon` installed and on your `PATH` (see [Installation](../install.md))
-- A source MongoDB instance with a collection to anonymize
-- A target MongoDB instance for the anonymized data (can be the same instance
-  with a different database name)
+- [Docker](https://docs.docker.com/get-docker/) installed and running
+- `git` and `bash`
+
+### Start two MongoDB instances
+
+One container acts as the **production** source, the other as the **development**
+target that will receive the anonymized data.
+
+```bash
+# Source — production (port 2717)
+docker run --name prod_mongodb -d \
+  -p 2717:27017 \
+  -e MONGO_INITDB_ROOT_USERNAME=user \
+  -e MONGO_INITDB_ROOT_PASSWORD=pass \
+  mongodb/mongodb-community-server
+
+# Target — development (port 2718)
+docker run --name dev_mongodb -d \
+  -p 2718:27017 \
+  -e MONGO_INITDB_ROOT_USERNAME=user \
+  -e MONGO_INITDB_ROOT_PASSWORD=pass \
+  mongodb/mongodb-community-server
+```
+
+Verify both are running:
+
+```bash
+docker ps | grep mongodb
+```
+
+### Import the MongoDB sample datasets into the production instance
+
+Clone the sample dataset repository and import it into `prod_mongodb`:
+
+```bash
+git clone https://github.com/neelabalan/mongodb-sample-dataset
+cd mongodb-sample-dataset
+```
+
+If `mongoimport` is available locally:
+
+```bash
+bash start.sh 'mongodb://user:pass@localhost:2717/?authSource=admin'
+```
+
+Otherwise run the import from inside the container:
+
+```bash
+# Copy the datasets into the container
+docker cp . prod_mongodb:/tmp/mongodb-sample-dataset
+
+# Run the import from inside the container
+docker exec -it prod_mongodb bash -c "
+  cd /tmp/mongodb-sample-dataset &&
+  bash start.sh 'mongodb://user:pass@localhost:27017/?authSource=admin'
+"
+```
+
+The tutorial below uses the `sample_airbnb.listingsAndReviews` collection.
+Substitute any other namespace if you prefer a different dataset.
 
 ---
 
@@ -27,8 +84,8 @@ copy in a development cluster using all four `manon` commands.
 manon init \
   --project-cluster ./projects \
   --project-dbname  airbnb \
-  --source-uri      mongodb://localhost:27017 \
-  --namespace       airbnb.listings
+  --source-uri      'mongodb://user:pass@localhost:2717/?authSource=admin' \
+  --namespace       sample_airbnb.listingsAndReviews
 ```
 
 This creates:
@@ -53,8 +110,8 @@ Sample 2 000 documents and write the schema with automatic masking annotations:
 
 ```bash
 manon infer \
-  --source-uri mongodb://localhost:27017 \
-  --namespace  airbnb.listings \
+  --source-uri 'mongodb://user:pass@localhost:2717/?authSource=admin' \
+  --namespace  sample_airbnb.listingsAndReviews \
   --output-dir ./schema \
   --number     2000
 ```
@@ -67,7 +124,7 @@ manon infer -c ./projects/airbnb/config/airbnb.conf \
             --output-dir ./schema
 ```
 
-Output: `./schema/listings/listings.yaml`
+Output: `./schema/listingsAndReviews/listingsAndReviews.yaml`
 
 Open the file and check the detected fields.  You will see blocks like:
 
@@ -125,28 +182,28 @@ to every sampled value.  The file is updated in place.
 
 ```bash
 manon apply \
-  --source-uri       mongodb://localhost:27017 \
-  --namespace        airbnb.listings \
-  --masking-rules    ./schema/listings/listings.yaml \
-  --target-uri       mongodb://localhost:27017 \
-  --target-namespace airbnb_anon.listings
+  --source-uri       'mongodb://user:pass@localhost:2717/?authSource=admin' \
+  --namespace        sample_airbnb.listingsAndReviews \
+  --masking-rules    ./schema/listingsAndReviews/listingsAndReviews.yaml \
+  --target-uri       'mongodb://user:pass@localhost:2718/?authSource=admin' \
+  --target-namespace sample_airbnb_anon.listingsAndReviews
 ```
 
 With the config file supplying `--source-uri` and `--namespace`:
 
 ```bash
 manon apply -c ./projects/airbnb/config/airbnb.conf \
-            --masking-rules    ./schema/listings/listings.yaml \
-            --target-uri       mongodb://localhost:27017 \
-            --target-namespace airbnb_anon.listings
+            --masking-rules    ./schema/listingsAndReviews/listingsAndReviews.yaml \
+            --target-uri       'mongodb://user:pass@localhost:2718/?authSource=admin' \
+            --target-namespace sample_airbnb_anon.listingsAndReviews
 ```
 
 `manon` will:
 
-1. Open a cursor on `airbnb.listings`.
+1. Open a cursor on `sample_airbnb.listingsAndReviews`.
 2. Read documents in batches of 500.
 3. Apply the masking rules from the YAML file to each document in memory.
-4. Bulk-insert the anonymized batch into `airbnb_anon.listings`.
+4. Bulk-insert the anonymized batch into `sample_airbnb_anon.listingsAndReviews`.
 
 The source collection is never modified.
 
@@ -158,15 +215,25 @@ Run steps 2–5 for each additional collection, changing `--namespace` and
 `--output-dir` accordingly:
 
 ```bash
+SOURCE='mongodb://user:pass@localhost:2717/?authSource=admin'
+TARGET='mongodb://user:pass@localhost:2718/?authSource=admin'
+
 # Infer schema for the reviews collection
-manon infer -s mongodb://localhost:27017 \
-            -n airbnb.reviews \
+manon infer -s "$SOURCE" \
+            -n sample_airbnb.reviews \
             -o ./schema
 
 # Apply masking
-manon apply  -s mongodb://localhost:27017 \
-             -n airbnb.reviews \
-             -t mongodb://localhost:27017 \
-             --target-namespace airbnb_anon.reviews \
+manon apply  -s "$SOURCE" \
+             -n sample_airbnb.reviews \
+             -t "$TARGET" \
+             --target-namespace sample_airbnb_anon.reviews \
              -m ./schema/reviews/reviews.yaml
+```
+
+### Tear down
+
+```bash
+docker stop prod_mongodb dev_mongodb
+docker rm   prod_mongodb dev_mongodb
 ```
