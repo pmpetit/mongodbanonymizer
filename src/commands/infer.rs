@@ -67,7 +67,28 @@ pub async fn run_infer(args: InferArgs) -> Result<()> {
                 }
             }
         } else {
-            println!("Inferring schema for all collections in database: {ns}");
+            // DB-only namespace: infer every collection in the database
+            let db_name = ns.as_str();
+            if !existing_db(&client, db_name).await? {
+                return Err(anyhow!("Database '{db_name}' does not exist"));
+            }
+            let collection_names = client
+                .database(db_name)
+                .list_collection_names()
+                .await
+                .with_context(|| format!("Failed to list collections in '{db_name}'"))?;
+            if collection_names.is_empty() {
+                println!("No collections found in database '{db_name}'");
+            } else {
+                println!(
+                    "Inferring schema for all {} collection(s) in database: {db_name}",
+                    collection_names.len()
+                );
+                for coll_name in &collection_names {
+                    println!("  → {db_name}.{coll_name}");
+                    infer_collection(&client, db_name, coll_name, &_args).await?;
+                }
+            }
         }
     }
 

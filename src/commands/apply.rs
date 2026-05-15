@@ -22,7 +22,7 @@ use serde_yaml;
 
 use crate::args::ApplyArgs;
 use crate::commands::init::read_conf;
-use crate::helpers::parse_namespace;
+use crate::helpers::{existing_db, parse_namespace};
 use crate::masking;
 use crate::models::{CollectionSchema, FieldSchema};
 
@@ -56,59 +56,147 @@ pub async fn run_apply(args: ApplyArgs) -> Result<()> {
         (uri, ns)
     };
 
-    // ── 1. Load and parse the YAML schema ────────────────────────────────────
-    let yaml_str = std::fs::read_to_string(&args.masking_rules).with_context(|| {
-        format!(
-            "Failed to read schema file {}",
-            args.masking_rules.display()
-        )
-    })?;
-    let schema: CollectionSchema = serde_yaml::from_str(&yaml_str)
-        .with_context(|| format!("Failed to parse YAML from {}", args.masking_rules.display()))?;
-
-    // ── 2. Resolve namespaces ─────────────────────────────────────────────────
-    let (source_db, source_coll) = parse_namespace(&source_ns)
-        .with_context(|| format!("Invalid source namespace '{source_ns}'"))?;
-
-    let target_ns_str = args
-        .target_namespace
-        .as_deref()
-        .unwrap_or(source_ns.as_str())
-        .to_owned();
-    let (target_db, target_coll) = parse_namespace(&target_ns_str)
-        .with_context(|| format!("Invalid target namespace '{target_ns_str}'"))?;
-
-    // ── 3. Connect to source ──────────────────────────────────────────────────
+    // ── 1. Connect to source ──────────────────────────────────────────────────
     let source_opts = ClientOptions::parse(&source_uri)
         .await
         .context("Failed to parse source URI")?;
     let source_client =
         Client::with_options(source_opts).context("Failed to create source client")?;
 
-    // ── 4. Connect to target ──────────────────────────────────────────────────
+    // ── 2. Connect to target ──────────────────────────────────────────────────
     let target_opts = ClientOptions::parse(&args.target_uri)
         .await
         .context("Failed to parse target URI")?;
     let target_client =
         Client::with_options(target_opts).context("Failed to create target client")?;
 
-    let target_collection = target_client
-        .database(target_db)
-        .collection::<Document>(target_coll);
+    if source_ns.contains('.') {
+        // ── Single collection ──────────────────────────────────────────────
+        let (source_db, source_coll) = parse_namespace(&source_ns)
+            .with_context(|| format!("Invalid source namespace '{source_ns}'"))?;
 
-    // ── 5. Stream source → mask → insert target ───────────────────────────────
+        let target_ns_str = args
+            .target_namespace
+            .as_deref()
+            .unwrap_or(source_ns.as_str())
+            .to_owned();
+        let (target_db, target_coll) = parse_namespace(&target_ns_str)
+            .with_context(|| format!("Invalid target namespace '{target_ns_str}'"))?;
+
+        let schema = load_schema(&args.masking_rules)?;
+
+        apply_one_collection(
+            &source_client,
+            source_db,
+            source_coll,
+            &target_client,
+            target_db,
+            target_coll,
+            &schema,
+        )
+        .await?;
+    } else {
+        // ── DB-level: apply to every collection ────────────────────────────
+        let source_db = source_ns.as_str();
+        if !existing_db(&source_client, source_db).await? {
+            return Err(anyhow!("Database '{source_db}' does not exist"));
+        }
+
+        // masking_rules must be a directory containing <coll>/<coll>.yaml
+        if !args.masking_rules.is_dir() {
+            return Err(anyhow!(
+                "'{}' is not a directory. For a DB-level apply, pass the directory that \
+                 contains the per-collection YAML files (e.g. source/collections/).",
+                args.masking_rules.display()
+            ));
+        }
+
+        let target_db = args.target_namespace.as_deref().unwrap_or(source_db);
+
+        let collection_names = source_client
+            .database(source_db)
+            .list_collection_names()
+            .await
+            .with_context(|| format!("Failed to list collections in '{source_db}'"))?;
+
+        if collection_names.is_empty() {
+            println!("No collections found in database '{source_db}'");
+            return Ok(());
+        }
+
+        println!(
+            "Applying masking rules to {} collection(s) in '{source_db}' → '{target_db}'",
+            collection_names.len()
+        );
+
+        for coll_name in &collection_names {
+            let yaml_path = args
+                .masking_rules
+                .join(coll_name)
+                .join(format!("{coll_name}.yaml"));
+
+            if !yaml_path.exists() {
+                println!(
+                    "  skip {coll_name}: no schema found at {}",
+                    yaml_path.display()
+                );
+                continue;
+            }
+
+            let schema = load_schema(&yaml_path)?;
+
+            println!("  → {source_db}.{coll_name}");
+            apply_one_collection(
+                &source_client,
+                source_db,
+                coll_name,
+                &target_client,
+                target_db,
+                coll_name,
+                &schema,
+            )
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Load and parse a YAML masking-rules file into a [`CollectionSchema`].
+fn load_schema(path: &std::path::Path) -> Result<CollectionSchema> {
+    let yaml_str = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read schema file {}", path.display()))?;
+    serde_yaml::from_str(&yaml_str)
+        .with_context(|| format!("Failed to parse YAML from {}", path.display()))
+}
+
+/// Apply masking from `schema` to all documents in `source_db.source_coll`
+/// and insert the anonymised documents into `target_db.target_coll`.
+async fn apply_one_collection(
+    source_client: &Client,
+    source_db: &str,
+    source_coll: &str,
+    target_client: &Client,
+    target_db: &str,
+    target_coll: &str,
+    schema: &CollectionSchema,
+) -> Result<()> {
     let src_collection = source_client
         .database(source_db)
         .collection::<Document>(source_coll);
+
+    let target_collection = target_client
+        .database(target_db)
+        .collection::<Document>(target_coll);
 
     let total = src_collection
         .estimated_document_count()
         .await
         .context("Failed to count source documents")?;
 
-    println!(
-        "Applying masking rules: {source_ns} → {target_ns_str}  ({total} documents estimated)"
-    );
+    let source_ns = format!("{source_db}.{source_coll}");
+    let target_ns = format!("{target_db}.{target_coll}");
+    println!("Applying masking rules: {source_ns} → {target_ns}  ({total} documents estimated)");
 
     let mut cursor = src_collection
         .find(doc! {})
@@ -141,7 +229,7 @@ pub async fn run_apply(args: ApplyArgs) -> Result<()> {
         written += n;
     }
 
-    println!("Done. {written} document(s) written to {target_ns_str}.");
+    println!("Done. {written} document(s) written to {target_db}.{target_coll}.");
     Ok(())
 }
 

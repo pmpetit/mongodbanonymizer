@@ -69,8 +69,10 @@ personal information protected by GDPR and similar regulations.
 
 ## Quick Start
 
+### Single collection
+
 ```bash
-# 1. Infer schema and masking rules from production
+# 1. Infer schema and masking rules from one collection
 manon infer -s mongodb://prod:27017 -n mydb.users -o ./schema
 
 # 2. Apply masking rules to populate a dev cluster
@@ -79,5 +81,25 @@ manon apply -s mongodb://prod:27017 \
             -t mongodb://dev:27017 \
             -m ./schema/users/users.yaml
 ```
+
+### Whole database
+
+Pass only the database name (no `.`) to process every collection at once:
+
+```bash
+# 1. Infer schema for all collections in mydb
+manon infer -s mongodb://prod:27017 -n mydb -o ./schema
+
+# 2. Apply masking rules for all collections in mydb
+#    --masking-rules points to the directory written by infer
+manon apply -s mongodb://prod:27017 \
+            -n mydb \
+            -t mongodb://dev:27017 \
+            -m ./schema \
+            --target-namespace mydb_anon
+```
+
+Collections that have no matching YAML file in `--masking-rules` are skipped
+with a warning.
 
 See the [Tutorial](tutorial/README.md) for a complete step-by-step walkthrough.
