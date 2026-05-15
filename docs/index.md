@@ -102,4 +102,27 @@ manon apply -s mongodb://prod:27017 \
 Collections that have no matching YAML file in `--masking-rules` are skipped
 with a warning.
 
+### Project-based workflow (using `init`)
+
+For repeated use, create a project once with `init` and drive everything
+through its config file:
+
+```bash
+# 1. Create the project structure and config file
+manon init --project-cluster /app/projects --project-dbname mydb \
+           --source-uri mongodb://prod:27017 --namespace mydb
+
+# 2. Infer all collections (URI and output dir come from the config)
+manon infer -c /app/projects/mydb/config/mydb.conf
+
+# 3. Apply masking rules (URI and namespace come from the config)
+manon apply -c /app/projects/mydb/config/mydb.conf \
+            -m /app/projects/mydb/source/collections \
+            -t mongodb://dev:27017
+```
+
+The `-c` flag makes `infer` and `apply` read the MongoDB URI, namespace, and
+output paths directly from the config file, so you don't have to repeat them on
+every invocation.
+
 See the [Tutorial](tutorial/README.md) for a complete step-by-step walkthrough.
