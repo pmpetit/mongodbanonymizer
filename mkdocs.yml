@@ -1,0 +1,51 @@
+site_name: manon — MongoDB Anonymizer
+site_description: Static masking tool for MongoDB collections
+site_author: manon contributors
+copyright: Copyright 2024-2026 manon contributors
+repo_url: https://github.com/pmpetit/mongodbanonymizer
+edit_uri: edit/main/docs/
+
+theme:
+  name: readthedocs
+  highlightjs: true
+  hljs_languages:
+    - yaml
+    - bash
+    - rust
+    - json
+
+nav:
+  - 'Home': index.md
+  - Install:
+      - 'Installation': install.md
+  - How-To Guides:
+      - 'Overview': how-to/README.md
+  - CLI Reference:
+      - 'Commands': reference/README.md
+  - Masking Methods:
+      - 'Methods': masking-methods/README.md
+  - Tutorial:
+      - 'Typical Workflow': tutorial/README.md
+
+# Markdown settings
+markdown_extensions:
+  - admonition
+  - codehilite:
+      guess_lang: false
+  - toc:
+      permalink: true
+  - tables
+  - fenced_code
+
+# Additional settings
+use_directory_urls: true
+strict: false
+
+# Plugin settings
+plugins:
+  - search
+
+# Extra settings for ReadTheDocs
+extra:
+  version:
+    provider: mike

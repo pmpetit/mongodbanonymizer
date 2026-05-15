@@ -1,0 +1,8 @@
+# Default owner for everything
+
+* @pmpetit
+
+# Protect GitHub automation
+
+.github/ @pmpetit
+.github/workflows/ @pmpetit

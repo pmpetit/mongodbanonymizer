@@ -1,0 +1,39 @@
+version: "3"
+
+vars:
+  URI: "mongodb://user:pass@localhost:2717/?authSource=admin"
+  RESULTS_DIR: results
+  BIN: "{{.ROOT_DIR}}/target/debug/manon"
+  DATABASES: >-
+    sample_airbnb
+    sample_analytics
+    sample_geospatial
+    sample_mflix
+    sample_supplies
+    sample_training
+    sample_weatherdata
+    retail
+
+tasks:
+  build:
+    desc: Build the manon binary (debug)
+    cmds:
+      - cargo build
+    sources:
+      - src/**/*.rs
+      - Cargo.toml
+      - Cargo.lock
+    generates:
+      - target/debug/manon
+
+  docs:install:
+    desc: Install MkDocs and documentation dependencies
+    dir: "{{.ROOT_DIR}}"
+    cmds:
+      - make -C docs install
+
+  docs:serve:
+    desc: Serve the documentation site locally (http://127.0.0.1:8000)
+    dir: "{{.ROOT_DIR}}"
+    cmds:
+      - make -C docs serve
