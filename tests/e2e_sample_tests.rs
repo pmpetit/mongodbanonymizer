@@ -33,6 +33,7 @@ use tokio::sync::OnceCell;
 use mongodbanonymizer::args::{ApplyArgs, InferArgs, UriArg};
 use mongodbanonymizer::commands::apply::run_apply;
 use mongodbanonymizer::commands::infer::run_infer;
+use mongodbanonymizer::helpers::{existing_collection, existing_db, get_locale, get_metadata};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared read-only fixture
@@ -812,4 +813,117 @@ async fn test_sample_weatherdata_schema_inferred() {
         yaml.contains("st:"),
         "st (station) field should appear:\n{yaml}"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── helpers: existing_db, existing_collection, get_locale, get_metadata
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `existing_db` returns `true` for a database that was imported.
+#[tokio::test]
+async fn test_existing_db_returns_true_for_known_db() {
+    let f = fixture().await;
+    let client = mongo_client(&f.uri).await;
+    let result = existing_db(&client, "sample_analytics")
+        .await
+        .expect("existing_db should not error");
+    assert!(result, "sample_analytics should be reported as existing");
+}
+
+/// `existing_db` returns `false` and does not error for an unknown database.
+#[tokio::test]
+async fn test_existing_db_returns_false_for_unknown_db() {
+    let f = fixture().await;
+    let client = mongo_client(&f.uri).await;
+    let result = existing_db(&client, "no_such_db_xyz")
+        .await
+        .expect("existing_db should not error");
+    assert!(!result, "unknown db should return false");
+}
+
+/// `existing_collection` returns `true` for a collection that was imported.
+#[tokio::test]
+async fn test_existing_collection_returns_true_for_known_collection() {
+    let f = fixture().await;
+    let client = mongo_client(&f.uri).await;
+    let result = existing_collection(&client, "sample_analytics", "customers")
+        .await
+        .expect("existing_collection should not error");
+    assert!(result, "customers should be reported as existing");
+}
+
+/// `existing_collection` returns `false` for a collection that does not exist.
+#[tokio::test]
+async fn test_existing_collection_returns_false_for_unknown_collection() {
+    let f = fixture().await;
+    let client = mongo_client(&f.uri).await;
+    let result = existing_collection(&client, "sample_analytics", "no_such_collection_xyz")
+        .await
+        .expect("existing_collection should not error");
+    assert!(!result, "unknown collection should return false");
+}
+
+/// `existing_collection` returns `false` when the database itself does not exist.
+#[tokio::test]
+async fn test_existing_collection_returns_false_for_unknown_db() {
+    let f = fixture().await;
+    let client = mongo_client(&f.uri).await;
+    let result = existing_collection(&client, "no_such_db_xyz", "customers")
+        .await
+        .expect("existing_collection should not error even for missing db");
+    assert!(!result, "collection inside unknown db should return false");
+}
+
+/// `get_locale` returns `"simple"` for collections created without an explicit
+/// collation (which is the case for all sample dataset imports).
+#[tokio::test]
+async fn test_get_locale_returns_simple_for_collections_without_collation() {
+    let f = fixture().await;
+    let client = mongo_client(&f.uri).await;
+    for (db, coll) in [
+        ("sample_analytics", "customers"),
+        ("sample_mflix", "users"),
+        ("sample_supplies", "sales"),
+    ] {
+        let locale = get_locale(&client, db, coll)
+            .await
+            .expect("get_locale should not error");
+        assert_eq!(
+            locale, "simple",
+            "{db}.{coll} should have 'simple' locale (no explicit collation)"
+        );
+    }
+}
+
+/// `get_locale` does not error for a collection that does not exist — returns `"simple"`
+/// because there is no collation spec to read.
+#[tokio::test]
+async fn test_get_locale_returns_simple_for_nonexistent_collection() {
+    let f = fixture().await;
+    let client = mongo_client(&f.uri).await;
+    let locale = get_locale(&client, "sample_analytics", "no_such_collection_xyz")
+        .await
+        .expect("get_locale should not error for missing collection");
+    assert_eq!(locale, "simple");
+}
+
+/// `get_metadata` completes without error for a known collection.
+#[tokio::test]
+async fn test_get_metadata_succeeds_for_known_collection() {
+    let f = fixture().await;
+    let client = mongo_client(&f.uri).await;
+    get_metadata(&client, "sample_analytics", "customers")
+        .await
+        .expect("get_metadata should succeed for a known collection");
+}
+
+/// `get_metadata` completes without error even for a collection that does not
+/// exist (the cursor simply yields no documents).
+#[tokio::test]
+async fn test_get_metadata_succeeds_for_nonexistent_collection() {
+    let f = fixture().await;
+    let client = mongo_client(&f.uri).await;
+    get_metadata(&client, "sample_analytics", "no_such_collection_xyz")
+        .await
+        .expect("get_metadata should not error for missing collection");
 }

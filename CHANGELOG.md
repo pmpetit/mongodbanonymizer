@@ -11,6 +11,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.2] — 2026-05-16
+
+### Added
+
+- **End-to-end test suite** (`tests/e2e_tests.rs`): 6 testcontainer-based tests
+  using synthetic data that exercise the full infer → apply pipeline, DB-level
+  operations, `--percent`, and the `--number` sampling limit.  No external
+  setup required beyond Docker.
+
+- **Sample-dataset e2e tests** (`tests/e2e_sample_tests.rs`): tests against all
+  7 official MongoDB sample databases
+  ([neelabalan/mongodb-sample-dataset](https://github.com/neelabalan/mongodb-sample-dataset)),
+  downloaded on the fly from GitHub — no local data files needed.  Covers
+  schema inference, sensitive-field detection, DB-level workflow, `--percent`
+  apply, and the `helpers` module (`existing_db`, `existing_collection`,
+  `get_locale`, `get_metadata`).
+
+- **Unit tests for `manon init` / `read_conf` / `manon mask`** (`tests/cli_tests.rs`):
+  10 new tests covering directory creation, `.conf` file generation, config
+  parsing (all fields, commented lines, missing required keys), in-place
+  masking, `--output` path redirection, and error handling on missing input
+  files.
+
+- **Unit tests for `helpers::parse_namespace`** (`tests/cli_tests.rs`):
+  6 tests covering the happy path, first-dot splitting, no-dot error, empty
+  string, leading dot, and trailing dot edge cases.
+
+- **Coverage reporting** via [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov):
+  - `task coverage` — HTML report from all tests (Docker required), opens browser.
+  - `task coverage:unit` — HTML report from unit tests only (no Docker).
+  - CI `coverage` job in `pr-preview.yml` collects LCOV data from both test
+    suites and uploads to Codecov on every PR.
+
+- **Task shortcuts** in `Taskfile.yml`:
+  - `task test:unit` — unit tests only (no Docker).
+  - `task test:e2e` — e2e tests (Docker required).
+  - `task test` — full suite (unit then e2e).
+  - `task coverage` / `task coverage:unit` — see above.
+
+### Changed
+
+- `pr-preview.yml` now runs the full test suite (unit + e2e) in a `test` job
+  that must pass before the `build` job starts.
+
+- `CONTRIBUTING.md` — "Run the test suite" section expanded with the Task
+  command table, Docker requirements, and a "Coverage reports" subsection.
+
+---
+
 ## [0.1.1] — 2026-05-16
 
 ### Added
@@ -139,6 +188,7 @@ Nine built-in masking methods, all deterministic (same input → same output):
 - GitHub Actions workflow (`pr-preview.yml`) — builds a Linux x86_64 binary
   on every pull request and posts a download link as a PR comment.
 
-[Unreleased]: https://github.com/pmpetit/mongodbanonymizer/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/pmpetit/mongodbanonymizer/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/pmpetit/mongodbanonymizer/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/pmpetit/mongodbanonymizer/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/pmpetit/mongodbanonymizer/releases/tag/v0.1.0
