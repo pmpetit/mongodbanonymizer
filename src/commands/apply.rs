@@ -34,8 +34,8 @@ const INSERT_BATCH: usize = 500;
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub async fn run_apply(args: ApplyArgs) -> Result<()> {
-    // ── 0. Resolve source_uri and namespace (CLI takes priority over conf) ────
-    let (source_uri, source_ns) = if let Some(ref conf) = args.config {
+    // ── 0. Resolve source_uri, namespace, and masking_rules dir ──────────────
+    let (source_uri, source_ns, masking_rules) = if let Some(ref conf) = args.config {
         let c = read_conf(conf)?;
         let uri = args.mongo.source_uri.clone().or(c.uri).ok_or_else(|| {
             anyhow!("No source URI provided: pass --source-uri or add URI to the config file")
@@ -43,7 +43,16 @@ pub async fn run_apply(args: ApplyArgs) -> Result<()> {
         let ns = args.namespace.clone().or(c.namespace).ok_or_else(|| {
             anyhow!("No namespace provided: pass --namespace or add NAMESPACE to the config file")
         })?;
-        (uri, ns)
+        // Derive masking-rules from project layout when not given on the CLI
+        let rules = match &args.masking_rules {
+            Some(p) => p.clone(),
+            None => c
+                .base_dir
+                .join(&c.project_dir)
+                .join("source")
+                .join("collections"),
+        };
+        (uri, ns, rules)
     } else {
         let uri =
             args.mongo.source_uri.clone().ok_or_else(|| {
@@ -53,7 +62,10 @@ pub async fn run_apply(args: ApplyArgs) -> Result<()> {
             .namespace
             .clone()
             .ok_or_else(|| anyhow!("No namespace provided: pass --namespace or -c <config>"))?;
-        (uri, ns)
+        let rules = args.masking_rules.clone().ok_or_else(|| {
+            anyhow!("No masking rules provided: pass --masking-rules or -c <config>")
+        })?;
+        (uri, ns, rules)
     };
 
     // ── 1. Connect to source ──────────────────────────────────────────────────
@@ -83,7 +95,7 @@ pub async fn run_apply(args: ApplyArgs) -> Result<()> {
         let (target_db, target_coll) = parse_namespace(&target_ns_str)
             .with_context(|| format!("Invalid target namespace '{target_ns_str}'"))?;
 
-        let schema = load_schema(&args.masking_rules)?;
+        let schema = load_schema(&masking_rules)?;
 
         apply_one_collection(
             &source_client,
@@ -104,11 +116,11 @@ pub async fn run_apply(args: ApplyArgs) -> Result<()> {
         }
 
         // masking_rules must be a directory containing <coll>/<coll>.yaml
-        if !args.masking_rules.is_dir() {
+        if !masking_rules.is_dir() {
             return Err(anyhow!(
                 "'{}' is not a directory. For a DB-level apply, pass the directory that \
                  contains the per-collection YAML files (e.g. source/collections/).",
-                args.masking_rules.display()
+                masking_rules.display()
             ));
         }
 
@@ -131,8 +143,7 @@ pub async fn run_apply(args: ApplyArgs) -> Result<()> {
         );
 
         for coll_name in &collection_names {
-            let yaml_path = args
-                .masking_rules
+            let yaml_path = masking_rules
                 .join(coll_name)
                 .join(format!("{coll_name}.yaml"));
 

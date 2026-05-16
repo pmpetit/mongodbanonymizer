@@ -109,9 +109,11 @@ pub struct ApplyArgs {
     #[command(flatten)]
     pub mongo: UriArg,
 
-    /// Path to a YAML schema file produced by `manon infer` (contains masking rules).
+    /// Path to a YAML schema file produced by `manon infer` (contains masking rules),
+    /// or a directory of per-collection YAML files for a DB-level apply.
+    /// When omitted and -c is given, defaults to <project>/source/collections/.
     #[arg(short = 'm', long = "masking-rules")]
-    pub masking_rules: PathBuf,
+    pub masking_rules: Option<PathBuf>,
 
     /// Source namespace to read from, in the form <db>.<collection>.
     /// Can be set via NAMESPACE in the config file.

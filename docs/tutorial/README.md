@@ -189,14 +189,20 @@ manon apply \
   --target-namespace sample_airbnb_anon.listingsAndReviews
 ```
 
-With the config file supplying `--source-uri` and `--namespace`:
+With the config file supplying `--source-uri` and `--namespace`, and
+`--masking-rules` defaulting to the project's `source/collections/` directory:
 
 ```bash
 manon apply -c ./projects/airbnb/config/airbnb.conf \
-            --masking-rules    ./schema/listingsAndReviews/listingsAndReviews.yaml \
             --target-uri       'mongodb://user:pass@localhost:2718/?authSource=admin' \
             --target-namespace sample_airbnb_anon.listingsAndReviews
 ```
+
+!!! tip
+    When `-c` is given and `--masking-rules` is omitted, `manon` automatically
+    looks for YAML files in `<project>/source/collections/` — the same
+    directory that `manon infer` writes to.  This means the typical
+    project-based workflow reduces to just passing `-c` and the target URI.
 
 `manon` will:
 
