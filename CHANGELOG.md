@@ -11,6 +11,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.1] — 2026-05-16
+
+### Added
+
+- **`manon infer` — DB-level namespace**: passing only a database name (no `.`)
+  to `--namespace` now enumerates and infers every non-system collection in the
+  database, writing one YAML file per collection.
+
+- **`manon apply` — DB-level namespace**: passing only a database name (no `.`)
+  to `--namespace` now processes every collection that has a matching
+  `<name>/<name>.yaml` file under the `--masking-rules` directory.  Collections
+  with no YAML file are skipped with a warning.
+
+- **`manon apply --percent / -p`**: copy only a given percentage of each source
+  collection (e.g. `--percent 10`).  The limit is `ceil(total × pct / 100)`,
+  minimum 1 document.  Intended for ephemeral or short-lived environments.
+
+- **`manon apply` — optional `--masking-rules`**: when `-c <config>` is given
+  and `--masking-rules` is omitted, `manon` automatically uses
+  `<BASE_DIR>/<PROJECT_DIR>/source/collections/` as the masking-rules
+  directory, which is exactly where `manon infer` writes its output.  The
+  typical project-based workflow now only requires passing `-c` and
+  `--target-uri` to `apply`.
+
+### Changed
+
+- `--masking-rules` / `-m` on `manon apply` is now **optional** when `-c` is
+  provided (see above).
+
+### Documentation
+
+- `CONTRIBUTING.md` added: guidance on extending `identifier.csv` /
+  `identifier_category.csv` and proposing new masking methods.
+- `CHANGELOG.md` added (this file).
+- `docs/install.md`: added "Download a pre-built binary" section with platform
+  table and `curl` one-liner, modelled on the mongo2pg USAGE.md.
+- `docs/index.md` Quick Start: added "Whole database" and "Project-based
+  workflow" subsections.
+- `docs/how-to/README.md`: split infer and apply recipes into single-collection
+  and whole-database subsections; added mixed-types / probability note.
+- `docs/reference/README.md`: updated `manon apply` flag table to reflect
+  optional `--masking-rules`, new `--percent`, and the auto-default from
+  `-c`; added mixed-types / probability admonition under `manon infer`.
+- `docs/tutorial/README.md`: Step 5 now shows the short `-c`-only form for
+  `apply`; new "Ephemeral environments" section demonstrates `--percent`.
+
+---
+
 ## [0.1.0] — 2026-05-16
 
 ### Added
@@ -91,5 +139,6 @@ Nine built-in masking methods, all deterministic (same input → same output):
 - GitHub Actions workflow (`pr-preview.yml`) — builds a Linux x86_64 binary
   on every pull request and posts a download link as a PR comment.
 
-[Unreleased]: https://github.com/pmpetit/mongodbanonymizer/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/pmpetit/mongodbanonymizer/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/pmpetit/mongodbanonymizer/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/pmpetit/mongodbanonymizer/releases/tag/v0.1.0
