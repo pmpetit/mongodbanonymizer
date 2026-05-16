@@ -94,10 +94,26 @@ manon apply --source-uri      <mongodb-uri>
 | Flag | Short | Description |
 |---|---|---|
 | `--source-uri` | `-s` | Source MongoDB connection URI |
-| `--namespace` | `-n` | Source namespace (`db.collection`) |
-| `--masking-rules` | `-m` | Path to the YAML schema file with masking annotations |
+| `--namespace` | `-n` | Source namespace (`db.collection` or just `db` for all collections) |
+| `--masking-rules` | `-m` | Path to the YAML schema file, or a directory of per-collection YAML files (DB-level apply) |
 | `--target-uri` | `-t` | Target MongoDB connection URI |
-| `--target-namespace` | | Target namespace (defaults to the same as `--namespace`) |
+| `--target-namespace` | | Target namespace or DB name (defaults to the same as `--namespace`) |
+| `--percent` | `-p` | Copy only this percentage of each source collection (e.g. `10` for 10%). Useful for ephemeral environments. |
+| `--config` | `-c` | Path to a `.conf` file created by `manon init` |
 
 Documents are processed in batches of **500** and written with `insert_many`.
 The source collection is **never modified**.
+
+!!! tip "Ephemeral environments"
+    Pass `--percent <N>` to limit the number of documents copied per collection.
+    For example, `--percent 10` copies roughly 10 % of each collection, which is
+    enough for smoke tests without filling a short-lived environment with a full
+    production dataset.
+
+    ```bash
+    manon apply -s mongodb://prod:27017 -n mydb \
+                -m source/collections/ \
+                -t mongodb://dev:27017 \
+                --target-namespace mydb_anon \
+                --percent 10
+    ```

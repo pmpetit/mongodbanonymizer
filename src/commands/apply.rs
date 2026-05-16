@@ -93,6 +93,7 @@ pub async fn run_apply(args: ApplyArgs) -> Result<()> {
             target_db,
             target_coll,
             &schema,
+            args.percent,
         )
         .await?;
     } else {
@@ -154,6 +155,7 @@ pub async fn run_apply(args: ApplyArgs) -> Result<()> {
                 target_db,
                 coll_name,
                 &schema,
+                args.percent,
             )
             .await?;
         }
@@ -180,6 +182,7 @@ async fn apply_one_collection(
     target_db: &str,
     target_coll: &str,
     schema: &CollectionSchema,
+    percent: Option<f64>,
 ) -> Result<()> {
     let src_collection = source_client
         .database(source_db)
@@ -194,14 +197,30 @@ async fn apply_one_collection(
         .await
         .context("Failed to count source documents")?;
 
+    // Compute how many documents to copy, honouring --percent.
+    let limit: Option<i64> = percent.map(|pct| {
+        let pct = pct.clamp(0.0, 100.0);
+        ((total as f64 * pct / 100.0).ceil() as i64).max(1)
+    });
+
     let source_ns = format!("{source_db}.{source_coll}");
     let target_ns = format!("{target_db}.{target_coll}");
-    println!("Applying masking rules: {source_ns} → {target_ns}  ({total} documents estimated)");
+    if let Some(lim) = limit {
+        println!(
+            "Applying masking rules: {source_ns} → {target_ns}  ({lim}/{total} documents, {:.1}%)",
+            percent.unwrap_or(100.0)
+        );
+    } else {
+        println!(
+            "Applying masking rules: {source_ns} → {target_ns}  ({total} documents estimated)"
+        );
+    }
 
-    let mut cursor = src_collection
-        .find(doc! {})
-        .await
-        .context("Failed to open source cursor")?;
+    let mut find = src_collection.find(doc! {});
+    if let Some(lim) = limit {
+        find = find.limit(lim);
+    }
+    let mut cursor = find.await.context("Failed to open source cursor")?;
 
     let mut batch: Vec<Document> = Vec::with_capacity(INSERT_BATCH);
     let mut written: u64 = 0;
