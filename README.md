@@ -148,12 +148,20 @@ manon infer -c ./myproject/config/myproject.conf
 Writes `./schema/listings/listings.yaml` containing the inferred schema
 with masking annotations for all recognised sensitive fields.
 
+> **Tip — whole database at once.**  Pass only the database name (no `.`) to
+> `--namespace` and `manon infer` will enumerate and infer **every collection**
+> in that database:
+>
+> ```
+> manon infer -s mongodb://prod:27017 -n mydb -o ./schema
+> ```
+
 **Key options**
 
 | Flag | Description |
 |---|---|
 | `-s, --source-uri` | MongoDB connection URI |
-| `-n, --namespace` | `<db>.<collection>` or just `<db>` to infer all collections |
+| `-n, --namespace` | `<db>.<collection>` for one collection, or just `<db>` to infer **all** collections in the database |
 | `--number` | Number of documents to sample (default 1000) |
 | `--percent` | Percentage of the collection to sample |
 | `-o, --output-dir` | Directory to write YAML/JSON output |
@@ -195,15 +203,32 @@ Streams every document from the source collection, applies the masking rules
 defined in the YAML schema file, and inserts the anonymized documents into the
 target collection in batches of 500.
 
+> **Tip — whole database at once.**  Pass only the database name (no `.`) to
+> `--namespace` and point `--masking-rules` to the directory written by
+> `manon infer`.  Every collection that has a matching YAML file is processed;
+> collections with no YAML are skipped with a warning:
+>
+> ```
+> manon apply -s mongodb://prod:27017 -n mydb \
+>             -m ./schema \
+>             -t mongodb://dev:27017 \
+>             --target-namespace mydb_anon
+> ```
+>
+> Add `--percent 10` to copy only 10 % of each collection (useful for
+> ephemeral environments).
+
 **Key options**
 
 | Flag | Description |
 |---|---|
 | `-s, --source-uri` | Source MongoDB URI |
-| `-n, --namespace` | Source namespace (`<db>.<collection>`) |
-| `-m, --masking-rules` | Path to the YAML schema file with masking annotations |
+| `-n, --namespace` | Source namespace — `<db>.<collection>` for one collection, or just `<db>` for **all** collections in the database |
+| `-m, --masking-rules` | Path to a YAML schema file (single collection) or a directory of per-collection YAML files (DB-level) |
 | `-t, --target-uri` | Target MongoDB URI |
-| `--target-namespace` | Target namespace (defaults to the same as `--namespace`) |
+| `--target-namespace` | Target namespace or DB name (defaults to the same as `--namespace`) |
+| `-p, --percent` | Copy only this percentage of each collection (e.g. `10` for 10%) |
+| `-c, --config` | Path to a `.conf` file created by `manon init` |
 
 ---
 
