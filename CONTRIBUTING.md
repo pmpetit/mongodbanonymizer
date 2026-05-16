@@ -107,9 +107,51 @@ cargo build
 
 ### Run the test suite
 
+The project uses [Task](https://taskfile.dev/) to provide convenient wrappers
+around the common test and coverage commands:
+
+| Command | What it runs | Docker needed? |
+|---|---|---|
+| `task test:unit` | `cargo test --test cli_tests` | No |
+| `task test:e2e` | `cargo test --test e2e_tests --test e2e_sample_tests` | Yes |
+| `task test` | Full suite (unit + e2e, in order) | Yes |
+| `task coverage:unit` | HTML coverage from unit tests, opens browser | No |
+| `task coverage` | HTML coverage from all tests, opens browser | Yes |
+
+If you prefer to run Cargo directly:
+
 ```bash
-cargo test
+# Unit + integration tests (no Docker required)
+cargo test --test cli_tests
+
+# All tests (Docker must be running)
+cargo test --test cli_tests --test e2e_tests --test e2e_sample_tests
 ```
+
+The e2e tests spin up a temporary MongoDB container via
+[testcontainers](https://github.com/testcontainers/testcontainers-rs) — no
+manual setup is required beyond having Docker running.
+
+#### Coverage reports
+
+Coverage is measured with
+[`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov).  Install it
+once, then use the Task shortcuts above:
+
+```bash
+# Install (once)
+cargo install cargo-llvm-cov
+rustup component add llvm-tools-preview
+
+# Quick summary in the terminal
+cargo llvm-cov --test cli_tests
+
+# Full HTML report (all tests, Docker required)
+task coverage
+# → opens target/llvm-cov/html/index.html
+```
+
+Coverage is also collected automatically on every PR via the CI workflow.
 
 ### Try against real data
 
