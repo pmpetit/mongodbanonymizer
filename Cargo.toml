@@ -24,4 +24,8 @@ csv = "1.4.0"
 
 
 [dev-dependencies]
+tempfile = "3.27.0"
+testcontainers = "0.27"
+testcontainers-modules = { version = "0.15", features = ["mongo"] }
 tokio = { version = "1.52.3", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
