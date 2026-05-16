@@ -51,6 +51,37 @@ and other personal information protected by GDPR and similar regulations.
 
 ---
 
+## Installation
+
+`manon` is a single Rust binary with no runtime dependencies.
+
+---
+
+### Download a pre-built binary
+
+Go to the [Releases page](https://github.com/pmpetit/mongodbanonymizer/releases) and download the archive that matches your platform:
+
+| Platform | File to download |
+|---|---|
+| Linux x86_64 | `manon-linux-x86_64` |
+| Linux arm64 | `manon-linux-aarch64` |
+| macOS Intel | `manon-macos-x86_64` |
+| macOS Apple Silicon | `manon-macos-aarch64` |
+| Windows x86_64 | `manon-windows-x86_64.exe` |
+| Windows arm64 | `manon-windows-aarch64.exe` |
+
+#### Linux / macOS
+
+```bash
+# Replace <version> and <platform> with your values, e.g. v0.1.0 and linux-x86_64
+version="v0.1.0"
+platform="linux-x86_64"
+curl -fL "https://github.com/pmpetit/mongodbanonymizer/releases/download/${version}/manon-${platform}" \
+  -o manon
+chmod +x manon
+sudo mv manon /usr/local/bin/
+```
+
 ## Features
 
 | Feature | Description |
