@@ -209,6 +209,29 @@ The source collection is never modified.
 
 ---
 
+## Ephemeral environments — copy only a fraction of the data
+
+When spinning up short-lived environments (CI pipelines, PR previews, local
+development), a full copy of the production dataset is rarely needed.
+Pass `--percent` to limit how many documents are copied per collection:
+
+```bash
+# Copy only 5 % of every collection in sample_airbnb
+manon apply \
+  --source-uri 'mongodb://user:pass@localhost:2717/?authSource=admin' \
+  --namespace  sample_airbnb \
+  --masking-rules ./schema \
+  --target-uri    'mongodb://user:pass@localhost:2718/?authSource=admin' \
+  --target-namespace sample_airbnb_anon \
+  --percent 5
+```
+
+The limit is computed as `ceil(total_docs × pct / 100)`, with a minimum of 1
+document per collection.  Documents are taken from the natural cursor order
+(i.e. insertion order on most collections).
+
+---
+
 ## Repeat for other collections
 
 Run steps 2–5 for each additional collection, changing `--namespace` and
