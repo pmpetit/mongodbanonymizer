@@ -76,6 +76,16 @@ jobs:
       - name: Merge coverage reports
         run: cargo llvm-cov report --lcov --output-path lcov.info
 
+      - name: Print coverage summary
+        run: cargo llvm-cov report --summary-only
+
+      - name: Write coverage summary to GitHub job summary
+        run: |
+          echo "## Coverage Report" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cargo llvm-cov report --summary-only 2>&1 >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
