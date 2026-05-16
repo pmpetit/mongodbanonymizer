@@ -102,6 +102,29 @@ manon apply -s mongodb://prod:27017 \
 Collections that have no matching YAML file in `--masking-rules` are skipped
 with a warning.
 
+example :
+
+```bash
+> manon apply -c prod/sample_analytics/config/sample_analytics.conf --target-uri 'mongodb://user:pass@localhost:2718/?authSource=admin'
+Applying masking rules to 3 collection(s) in 'sample_analytics' → 'sample_analytics'
+  → sample_analytics.transactions
+Applying masking rules: sample_analytics.transactions → sample_analytics.transactions  (1746 documents estimated)
+  written 500 …
+  written 1000 …
+  written 1500 …
+Done. 1746 document(s) written to sample_analytics.transactions.
+  → sample_analytics.customers
+Applying masking rules: sample_analytics.customers → sample_analytics.customers  (500 documents estimated)
+  written 500 …
+Done. 500 document(s) written to sample_analytics.customers.
+  → sample_analytics.accounts
+Applying masking rules: sample_analytics.accounts → sample_analytics.accounts  (1746 documents estimated)
+  written 500 …
+  written 1000 …
+  written 1500 …
+Done. 1746 document(s) written to sample_analytics.accounts.
+```
+
 ### Project-based workflow (using `init`)
 
 For repeated use, create a project once with `init` and drive everything
