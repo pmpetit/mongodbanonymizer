@@ -1,19 +1,27 @@
-//! End-to-end tests using the MongoDB sample datasets located in `tests/data/`.
+//! End-to-end tests using **all** MongoDB sample datasets downloaded on-the-fly
+//! from <https://github.com/neelabalan/mongodb-sample-dataset>.
 //!
 //! A **shared read-only container** is started once for the whole test binary
-//! and populated with:
-//!   - `sample_analytics`  (accounts, customers, transactions — ~4 000 docs)
-//!   - `sample_mflix/users`                                   (185 docs)
+//! and populated with every collection from all 7 sample databases:
 //!
-//! Tests that need to write anonymised data start their own container so they
-//! do not interfere with each other.
+//! | Database             | Collections                                                      |
+//! |----------------------|------------------------------------------------------------------|
+//! | `sample_airbnb`      | listingsAndReviews                                               |
+//! | `sample_analytics`   | accounts, customers, transactions                                |
+//! | `sample_geospatial`  | shipwrecks                                                       |
+//! | `sample_mflix`       | comments, movies, sessions, theaters, users                      |
+//! | `sample_supplies`    | sales                                                            |
+//! | `sample_training`    | companies, grades, inspections, posts, routes, stories, trips, tweets, zips |
+//! | `sample_weatherdata` | data                                                             |
+//!
+//! Tests that need to **write** anonymised data start their own container so
+//! they do not interfere with each other.
 //!
 //! Run with:
 //! ```bash
 //! cargo test --test e2e_sample_tests -- --nocapture
 //! ```
 
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use futures::TryStreamExt;
@@ -47,8 +55,8 @@ async fn fixture() -> &'static SampleFixture {
             let port = container.get_host_port_ipv4(27017).await.expect("get port");
             let uri = format!("mongodb://{host}:{port}/");
 
-            println!("Shared fixture: importing sample datasets into {uri}");
-            import_analytics_and_mflix(&uri).await;
+            println!("Shared fixture: importing all sample datasets into {uri}");
+            import_all_sample_datasets(&uri).await;
 
             SampleFixture {
                 uri,
@@ -67,36 +75,23 @@ async fn mongo_client(uri: &str) -> Client {
     Client::with_options(opts).expect("create client")
 }
 
-/// Import sample_analytics (3 collections) and sample_mflix/users.
-async fn import_analytics_and_mflix(uri: &str) {
-    let client = mongo_client(uri).await;
-    let data_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
+const SAMPLE_DATASET_BASE: &str =
+    "https://raw.githubusercontent.com/neelabalan/mongodb-sample-dataset/main";
 
-    let datasets: &[(&str, &[&str])] = &[
-        (
-            "sample_analytics",
-            &["accounts", "customers", "transactions"],
-        ),
-        ("sample_mflix", &["users"]),
-    ];
+/// Download a newline-delimited JSON file from GitHub and bulk-insert into MongoDB.
+/// Handles MongoDB Extended JSON v2 (`$oid`, `$date`, `$numberInt`, etc.).
+async fn import_from_github(client: &Client, db: &str, collection: &str) -> usize {
+    let url = format!("{SAMPLE_DATASET_BASE}/{db}/{collection}.json");
+    let content = reqwest::get(&url)
+        .await
+        .unwrap_or_else(|e| panic!("GET {url} failed: {e}"))
+        .error_for_status()
+        .unwrap_or_else(|e| panic!("HTTP error for {url}: {e}"))
+        .text()
+        .await
+        .unwrap_or_else(|e| panic!("Reading body of {url} failed: {e}"));
 
-    for (db, collections) in datasets {
-        for &coll in *collections {
-            let path = data_dir.join(db).join(format!("{coll}.json"));
-            let n = import_jsonl(&client, db, coll, &path).await;
-            println!("  {db}.{coll}: {n} docs");
-        }
-    }
-}
-
-/// Read a newline-delimited JSON file and bulk-insert into MongoDB.
-/// Uses `bson::Bson::try_from(serde_json::Value)` which handles MongoDB
-/// Extended JSON v2 notation (`$oid`, `$date`, `$numberInt`, etc.).
-async fn import_jsonl(client: &Client, db: &str, collection: &str, path: &Path) -> usize {
     let coll = client.database(db).collection::<Document>(collection);
-    let content = std::fs::read_to_string(path)
-        .unwrap_or_else(|_| panic!("Failed to read {}", path.display()));
-
     let docs: Vec<Document> = content
         .lines()
         .filter(|l| !l.trim().is_empty())
@@ -114,6 +109,45 @@ async fn import_jsonl(client: &Client, db: &str, collection: &str, path: &Path) 
             .expect("insert chunk");
     }
     total
+}
+
+/// Import every collection from all 7 MongoDB sample databases.
+async fn import_all_sample_datasets(uri: &str) {
+    let client = mongo_client(uri).await;
+    let datasets: &[(&str, &[&str])] = &[
+        ("sample_airbnb", &["listingsAndReviews"]),
+        (
+            "sample_analytics",
+            &["accounts", "customers", "transactions"],
+        ),
+        ("sample_geospatial", &["shipwrecks"]),
+        (
+            "sample_mflix",
+            &["comments", "movies", "sessions", "theaters", "users"],
+        ),
+        ("sample_supplies", &["sales"]),
+        (
+            "sample_training",
+            &[
+                "companies",
+                "grades",
+                "inspections",
+                "posts",
+                "routes",
+                "stories",
+                "trips",
+                "tweets",
+                "zips",
+            ],
+        ),
+        ("sample_weatherdata", &["data"]),
+    ];
+    for (db, collections) in datasets {
+        for &coll in *collections {
+            let n = import_from_github(&client, db, coll).await;
+            println!("  {db}.{coll}: {n} docs");
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -288,14 +322,7 @@ async fn test_sample_mflix_users_apply_masks_email() {
     let uri = format!("mongodb://{host}:{port}/");
     let client = mongo_client(&uri).await;
 
-    let data_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
-    let n = import_jsonl(
-        &client,
-        "sample_mflix",
-        "users",
-        &data_dir.join("sample_mflix/users.json"),
-    )
-    .await;
+    let n = import_from_github(&client, "sample_mflix", "users").await;
     assert!(n > 0, "should have imported users");
 
     let tmp = tempfile::tempdir().expect("tmp dir");
@@ -370,19 +397,10 @@ async fn test_sample_analytics_db_level_workflow() {
     let uri = format!("mongodb://{host}:{port}/");
     let client = mongo_client(&uri).await;
 
-    let data_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
     let collections = ["accounts", "customers", "transactions"];
 
     for coll in collections {
-        import_jsonl(
-            &client,
-            "sample_analytics",
-            coll,
-            &data_dir
-                .join("sample_analytics")
-                .join(format!("{coll}.json")),
-        )
-        .await;
+        import_from_github(&client, "sample_analytics", coll).await;
     }
 
     let tmp = tempfile::tempdir().expect("tmp dir");
@@ -439,14 +457,7 @@ async fn test_sample_analytics_customers_apply_with_percent() {
     let uri = format!("mongodb://{host}:{port}/");
     let client = mongo_client(&uri).await;
 
-    let data_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
-    let total = import_jsonl(
-        &client,
-        "sample_analytics",
-        "customers",
-        &data_dir.join("sample_analytics/customers.json"),
-    )
-    .await as u64;
+    let total = import_from_github(&client, "sample_analytics", "customers").await as u64;
 
     let tmp = tempfile::tempdir().expect("tmp dir");
     run_infer(infer_args(
@@ -479,5 +490,326 @@ async fn test_sample_analytics_customers_apply_with_percent() {
     assert_eq!(
         dst_count, expected,
         "50% of {total} docs = {expected}, got {dst_count}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── sample_airbnb
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `sample_airbnb.listingsAndReviews` — host email and reviewer name fields
+/// should be detected and annotated.
+#[tokio::test]
+async fn test_sample_airbnb_listings_sensitive_fields_detected() {
+    let f = fixture().await;
+    let tmp = tempfile::tempdir().expect("tmp dir");
+
+    run_infer(infer_args(
+        &f.uri,
+        "sample_airbnb.listingsAndReviews",
+        &tmp.path().to_path_buf(),
+    ))
+    .await
+    .expect("infer listingsAndReviews");
+
+    let yaml = std::fs::read_to_string(
+        tmp.path()
+            .join("listingsAndReviews")
+            .join("listingsAndReviews.yaml"),
+    )
+    .expect("read yaml");
+
+    assert!(
+        yaml.contains("sampled:"),
+        "yaml should have sampled count:\n{yaml}"
+    );
+    // The schema should include the top-level name field and nested host block
+    assert!(yaml.contains("name:"), "name field should appear:\n{yaml}");
+    assert!(
+        yaml.contains("host:"),
+        "host sub-document should appear:\n{yaml}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── sample_geospatial
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `sample_geospatial.shipwrecks` — schema inference should succeed and
+/// capture known top-level fields.
+#[tokio::test]
+async fn test_sample_geospatial_shipwrecks_schema_inferred() {
+    let f = fixture().await;
+    let tmp = tempfile::tempdir().expect("tmp dir");
+
+    run_infer(infer_args(
+        &f.uri,
+        "sample_geospatial.shipwrecks",
+        &tmp.path().to_path_buf(),
+    ))
+    .await
+    .expect("infer shipwrecks");
+
+    let yaml = std::fs::read_to_string(tmp.path().join("shipwrecks").join("shipwrecks.yaml"))
+        .expect("read yaml");
+
+    assert!(
+        yaml.contains("sampled:"),
+        "yaml should have sampled count:\n{yaml}"
+    );
+    // Every shipwreck document has a feature_type field
+    assert!(
+        yaml.contains("feature_type:"),
+        "feature_type field should be present:\n{yaml}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── sample_mflix (all collections)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Inferring the whole `sample_mflix` DB creates one YAML file per collection.
+#[tokio::test]
+async fn test_sample_mflix_db_infer_creates_all_yaml_files() {
+    let f = fixture().await;
+    let tmp = tempfile::tempdir().expect("tmp dir");
+
+    run_infer(infer_args(
+        &f.uri,
+        "sample_mflix",
+        &tmp.path().to_path_buf(),
+    ))
+    .await
+    .expect("infer sample_mflix");
+
+    for coll in ["comments", "movies", "sessions", "theaters", "users"] {
+        let yaml = tmp.path().join(coll).join(format!("{coll}.yaml"));
+        assert!(
+            yaml.exists(),
+            "{coll}.yaml should exist at {}",
+            yaml.display()
+        );
+    }
+}
+
+/// `sample_mflix.comments` contains `email` and `name` — both should be
+/// automatically annotated with masking rules.
+#[tokio::test]
+async fn test_sample_mflix_comments_sensitive_fields_detected() {
+    let f = fixture().await;
+    let tmp = tempfile::tempdir().expect("tmp dir");
+
+    run_infer(infer_args(
+        &f.uri,
+        "sample_mflix.comments",
+        &tmp.path().to_path_buf(),
+    ))
+    .await
+    .expect("infer comments");
+
+    let yaml = std::fs::read_to_string(tmp.path().join("comments").join("comments.yaml"))
+        .expect("read yaml");
+
+    assert!(
+        yaml.contains("MASK_CONTACT_URI"),
+        "email should be annotated in comments:\n{yaml}"
+    );
+    assert!(
+        yaml.contains("PRESERVE_TOKEN"),
+        "name should be annotated in comments:\n{yaml}"
+    );
+}
+
+/// `sample_mflix.movies` — schema should include known fields like `title` and
+/// `year` with no PII annotations.
+#[tokio::test]
+async fn test_sample_mflix_movies_schema_inferred() {
+    let f = fixture().await;
+    let tmp = tempfile::tempdir().expect("tmp dir");
+
+    run_infer(infer_args(
+        &f.uri,
+        "sample_mflix.movies",
+        &tmp.path().to_path_buf(),
+    ))
+    .await
+    .expect("infer movies");
+
+    let yaml =
+        std::fs::read_to_string(tmp.path().join("movies").join("movies.yaml")).expect("read yaml");
+
+    assert!(
+        yaml.contains("sampled:"),
+        "yaml should have sampled count:\n{yaml}"
+    );
+    assert!(
+        yaml.contains("title:"),
+        "title field should appear:\n{yaml}"
+    );
+    assert!(yaml.contains("year:"), "year field should appear:\n{yaml}");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── sample_supplies
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `sample_supplies.sales` contains a nested `customer` sub-document with an
+/// `email` field that should be annotated.
+#[tokio::test]
+async fn test_sample_supplies_sales_customer_email_detected() {
+    let f = fixture().await;
+    let tmp = tempfile::tempdir().expect("tmp dir");
+
+    run_infer(infer_args(
+        &f.uri,
+        "sample_supplies.sales",
+        &tmp.path().to_path_buf(),
+    ))
+    .await
+    .expect("infer sales");
+
+    let yaml =
+        std::fs::read_to_string(tmp.path().join("sales").join("sales.yaml")).expect("read yaml");
+
+    assert!(
+        yaml.contains("sampled:"),
+        "yaml should have sampled count:\n{yaml}"
+    );
+    assert!(
+        yaml.contains("customer:"),
+        "customer sub-document should appear:\n{yaml}"
+    );
+    assert!(
+        yaml.contains("MASK_CONTACT_URI"),
+        "customer.email should be annotated:\n{yaml}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── sample_training
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Inferring the whole `sample_training` DB creates one YAML file per
+/// collection (9 collections).
+#[tokio::test]
+async fn test_sample_training_db_infer_creates_all_yaml_files() {
+    let f = fixture().await;
+    let tmp = tempfile::tempdir().expect("tmp dir");
+
+    run_infer(infer_args(
+        &f.uri,
+        "sample_training",
+        &tmp.path().to_path_buf(),
+    ))
+    .await
+    .expect("infer sample_training");
+
+    for coll in [
+        "companies",
+        "grades",
+        "inspections",
+        "posts",
+        "routes",
+        "stories",
+        "trips",
+        "tweets",
+        "zips",
+    ] {
+        let yaml = tmp.path().join(coll).join(format!("{coll}.yaml"));
+        assert!(
+            yaml.exists(),
+            "{coll}.yaml should exist at {}",
+            yaml.display()
+        );
+    }
+}
+
+/// `sample_training.companies` — schema should include `name` and `founded_year`.
+#[tokio::test]
+async fn test_sample_training_companies_schema_inferred() {
+    let f = fixture().await;
+    let tmp = tempfile::tempdir().expect("tmp dir");
+
+    run_infer(infer_args(
+        &f.uri,
+        "sample_training.companies",
+        &tmp.path().to_path_buf(),
+    ))
+    .await
+    .expect("infer companies");
+
+    let yaml = std::fs::read_to_string(tmp.path().join("companies").join("companies.yaml"))
+        .expect("read yaml");
+
+    assert!(
+        yaml.contains("sampled:"),
+        "yaml should have sampled count:\n{yaml}"
+    );
+    assert!(yaml.contains("name:"), "name field should appear:\n{yaml}");
+    assert!(
+        yaml.contains("founded_year:"),
+        "founded_year field should appear:\n{yaml}"
+    );
+}
+
+/// `sample_training.zips` — schema should include `city`, `state`, and `pop`.
+#[tokio::test]
+async fn test_sample_training_zips_schema_inferred() {
+    let f = fixture().await;
+    let tmp = tempfile::tempdir().expect("tmp dir");
+
+    run_infer(infer_args(
+        &f.uri,
+        "sample_training.zips",
+        &tmp.path().to_path_buf(),
+    ))
+    .await
+    .expect("infer zips");
+
+    let yaml =
+        std::fs::read_to_string(tmp.path().join("zips").join("zips.yaml")).expect("read yaml");
+
+    assert!(
+        yaml.contains("sampled:"),
+        "yaml should have sampled count:\n{yaml}"
+    );
+    assert!(yaml.contains("city:"), "city field should appear:\n{yaml}");
+    assert!(
+        yaml.contains("state:"),
+        "state field should appear:\n{yaml}"
+    );
+    assert!(yaml.contains("pop:"), "pop field should appear:\n{yaml}");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── sample_weatherdata
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `sample_weatherdata.data` — schema inference should succeed and capture
+/// known measurement fields.
+#[tokio::test]
+async fn test_sample_weatherdata_schema_inferred() {
+    let f = fixture().await;
+    let tmp = tempfile::tempdir().expect("tmp dir");
+
+    run_infer(infer_args(
+        &f.uri,
+        "sample_weatherdata.data",
+        &tmp.path().to_path_buf(),
+    ))
+    .await
+    .expect("infer weatherdata");
+
+    let yaml =
+        std::fs::read_to_string(tmp.path().join("data").join("data.yaml")).expect("read yaml");
+
+    assert!(
+        yaml.contains("sampled:"),
+        "yaml should have sampled count:\n{yaml}"
+    );
+    // Every weather document has a station identifier
+    assert!(
+        yaml.contains("st:"),
+        "st (station) field should appear:\n{yaml}"
     );
 }
