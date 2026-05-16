@@ -1,7 +1,38 @@
 # Installation
 
-`manon` is a single Rust binary.  You can build it from source or (once
-releases are published) download a pre-built binary.
+`manon` is a single Rust binary with no runtime dependencies.
+
+---
+
+## Download a pre-built binary
+
+Go to the [Releases page](https://github.com/pmpetit/mongodbanonymizer/releases) and download the archive that matches your platform:
+
+| Platform | File to download |
+|---|---|
+| Linux x86_64 | `manon-linux-x86_64` |
+| Linux arm64 | `manon-linux-aarch64` |
+| macOS Intel | `manon-macos-x86_64` |
+| macOS Apple Silicon | `manon-macos-aarch64` |
+| Windows x86_64 | `manon-windows-x86_64.exe` |
+| Windows arm64 | `manon-windows-aarch64.exe` |
+
+### Linux / macOS
+
+```bash
+# Replace <version> and <platform> with your values, e.g. v0.1.0 and linux-x86_64
+version="v0.1.0"
+platform="linux-x86_64"
+curl -fL "https://github.com/pmpetit/mongodbanonymizer/releases/download/${version}/manon-${platform}" \
+  -o manon
+chmod +x manon
+sudo mv manon /usr/local/bin/
+```
+
+### Windows
+
+Download the `.exe`, optionally rename it to `manon.exe`, and place it in a
+directory that is on your `PATH`.
 
 ---
 
@@ -29,8 +60,7 @@ cd mongodbanonymizer
 cargo build --release
 ```
 
-The binary is written to `target/release/manon` (the binary is named `manon`
-even though the crate is called `mongodbanonymizer`).
+The binary is written to `target/release/manon`.
 
 ### Add to PATH
 
@@ -47,23 +77,6 @@ Verify the installation:
 ```bash
 manon --version
 ```
-
----
-
-## Data files
-
-`manon` ships with two CSV dictionaries that drive automatic field detection.
-They are read at runtime from the working directory (or the path set by the
-`--data-dir` flag if supported by your build):
-
-| File | Purpose |
-|---|---|
-| `data/identifier.csv` | Maps field-name patterns (locale, name, category) |
-| `data/identifier_category.csv` | Maps masking categories to masking methods |
-
-These files are included in the repository under `data/`.  When running
-`manon` from a directory other than the repository root, copy the `data/`
-folder alongside the binary or point `--data-dir` to its location.
 
 ---
 
