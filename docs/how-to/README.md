@@ -73,13 +73,36 @@ host_name:
       masking:
         enabled: true
         method: PRESERVE_TOKEN
+      values:
+        - Txkmf          # ← already anonymized
+        - Bqz
+        - Wkrpn Hdjx
 ```
+
+!!! note "About `values`"
+    Each field stores up to **20 reservoir-sampled values** collected during
+    `manon infer`.  When a masking rule is enabled the values shown are
+    **already anonymized** — they reflect what the output will look like after
+    `manon apply` runs.  Use them as a quick sanity check to make sure the
+    chosen masking method produces realistic-looking results before applying
+    rules to the real collection.
+
+    Run `manon mask` at any time to refresh these samples after changing a
+    method or editing the YAML by hand.
 
 You can:
 
 - Change `method` to a different [masking method](../masking-methods/README.md).
 - Set `enabled: false` to skip masking for a field.
 - Add a `masking:` block to a field that was not automatically detected.
+
+!!! note "Mixed types"
+    Because MongoDB is schemaless, the same field can contain different BSON
+    types in different documents.  The YAML lists each observed type under
+    `types:` with its own `probability` (how often that type appears among all
+    sampled occurrences of the field).  You can enable masking on one type and
+    leave another untouched — useful for legacy fields that mix strings and
+    numbers.
 
 After editing, run `manon mask` to refresh the anonymized `values` samples:
 
