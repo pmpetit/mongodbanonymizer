@@ -131,11 +131,11 @@ manon apply --source-uri      <mongodb-uri>
 |---|---|---|
 | `--source-uri` | `-s` | Source MongoDB connection URI |
 | `--namespace` | `-n` | Source namespace (`db.collection` or just `db` for all collections) |
-| `--masking-rules` | `-m` | Path to the YAML schema file, or a directory of per-collection YAML files (DB-level apply) |
+| `--masking-rules` | `-m` | Path to a YAML schema file (single collection), a directory of per-collection YAML files (DB-level), or omit when `-c` is given to use `<project>/source/collections/` automatically |
 | `--target-uri` | `-t` | Target MongoDB connection URI |
 | `--target-namespace` | | Target namespace or DB name (defaults to the same as `--namespace`) |
 | `--percent` | `-p` | Copy only this percentage of each source collection (e.g. `10` for 10%). Useful for ephemeral environments. |
-| `--config` | `-c` | Path to a `.conf` file created by `manon init` |
+| `--config` | `-c` | Path to a `.conf` file created by `manon init`; also supplies the default `--masking-rules` path |
 
 Documents are processed in batches of **500** and written with `insert_many`.
 The source collection is **never modified**.

@@ -147,8 +147,6 @@ async fn infer_collection(
     let output_dir = output_dir; // rebind to keep borrow checker happy
 
     if let Some(out_dir) = output_dir {
-        write_collection_files(out_dir, coll_name, &schema)
-            .with_context(|| format!("Failed to write output files for {coll_name}"))?;
         write_collection_yaml_files(out_dir, coll_name, &schema)
             .with_context(|| format!("Failed to write YAML output files for {coll_name}"))?;
     }
@@ -201,23 +199,6 @@ fn build_field_method_map() -> HashMap<String, String> {
     }
 
     field_map
-}
-
-/// Write `<dir>/<name>/<name>.json`.
-fn write_collection_files(base: &Path, coll_name: &str, schema: &CollectionSchema) -> Result<()> {
-    // Sanitize collection name for use as a filesystem path component:
-    // MongoDB allows '/' in collection names; replace with '_' to avoid
-    // path traversal issues when constructing output directories/files.
-    let safe_name = coll_name.replace('/', "_");
-    let dir = base.join(&safe_name);
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("Failed to create directory {}", dir.display()))?;
-
-    let json_path = dir.join(format!("{safe_name}.json"));
-    std::fs::write(&json_path, serde_json::to_string_pretty(schema)?)
-        .with_context(|| format!("Failed to write {}", json_path.display()))?;
-
-    Ok(())
 }
 
 /// Write `<dir>/<name>/<name>.yaml`.
