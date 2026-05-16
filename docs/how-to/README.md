@@ -32,6 +32,8 @@ commands instead of repeating all flags.
 
 ## How to infer a schema
 
+### Single collection
+
 ```bash
 manon infer --source-uri mongodb://localhost:27017 \
             --namespace  airbnb.listings \
@@ -43,6 +45,20 @@ manon infer --source-uri mongodb://localhost:27017 \
 `--percent` to sample a percentage of the collection instead.
 
 The output is a YAML file at `./schema/listings/listings.yaml`.
+
+### All collections in a database
+
+Omit the `.collection` part of `--namespace` to infer every collection in the
+database in one go:
+
+```bash
+manon infer --source-uri mongodb://localhost:27017 \
+            --namespace  airbnb \
+            --output-dir ./schema
+```
+
+`manon` lists all non-system collections in `airbnb` and writes one YAML file
+per collection under `./schema/<collection>/`.
 
 ---
 
@@ -75,16 +91,35 @@ manon mask ./schema/listings/listings.yaml
 
 ## How to anonymize a live collection
 
+### Single collection
+
 ```bash
-manon apply --source-uri      mongodb://prod:27017 \
-            --namespace       airbnb.listings \
-            --masking-rules   ./schema/listings/listings.yaml \
-            --target-uri      mongodb://dev:27017 \
+manon apply --source-uri       mongodb://prod:27017 \
+            --namespace        airbnb.listings \
+            --masking-rules    ./schema/listings/listings.yaml \
+            --target-uri       mongodb://dev:27017 \
             --target-namespace airbnb_anon.listings
 ```
 
 Documents are read from the source, masked in memory in batches of 500, and
 bulk-inserted into the target.  The source is never modified.
+
+### All collections in a database
+
+Pass only the database name (no `.`) to `--namespace` and point
+`--masking-rules` to the directory produced by `manon infer`:
+
+```bash
+manon apply --source-uri       mongodb://prod:27017 \
+            --namespace        airbnb \
+            --masking-rules    ./schema \
+            --target-uri       mongodb://dev:27017 \
+            --target-namespace airbnb_anon
+```
+
+Each collection that has a matching `<name>/<name>.yaml` file under `./schema`
+is processed in turn.  Collections with no YAML file are skipped with a
+warning.  Add `--percent 10` to limit the copy to 10 % of each collection.
 
 ---
 
