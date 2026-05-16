@@ -37,3 +37,36 @@ tasks:
     dir: "{{.ROOT_DIR}}"
     cmds:
       - make -C docs serve
+
+  test:unit:
+    desc: Run unit + integration tests (no Docker required)
+    cmds:
+      - cargo test --test cli_tests
+
+  test:e2e:
+    desc: Run e2e tests with testcontainers (Docker must be running)
+    cmds:
+      - cargo test --test e2e_tests --test e2e_sample_tests
+
+  test:
+    desc: Run the full test suite (unit + e2e)
+    cmds:
+      - task: test:unit
+      - task: test:e2e
+
+  coverage:
+    desc: Generate HTML coverage report and open it (Docker must be running for e2e)
+    cmds:
+      - cargo llvm-cov --test cli_tests --test e2e_tests --test e2e_sample_tests --html
+      - xdg-open target/llvm-cov/html/index.html
+
+  coverage:unit:
+    desc: Generate HTML coverage report from unit tests only (no Docker)
+    cmds:
+      - cargo llvm-cov --test cli_tests --html
+      - xdg-open target/llvm-cov/html/index.html
+
+  clean:
+    desc: Remove the target/ build directory
+    cmds:
+      - cargo clean

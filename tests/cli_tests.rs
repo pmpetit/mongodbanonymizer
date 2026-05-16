@@ -9,7 +9,11 @@ use std::collections::HashMap;
 use indexmap::IndexMap;
 use mongodb::bson::{self, Bson, doc};
 use mongodbanonymizer::analyzer::{Analyzer, annotate_masking, mask_sampled_values};
+use mongodbanonymizer::args::{InitArgs, MaskArgs};
 use mongodbanonymizer::commands::apply::apply_masking_to_doc;
+use mongodbanonymizer::commands::init::{read_conf, run_init};
+use mongodbanonymizer::commands::mask::run_mask;
+use mongodbanonymizer::helpers::parse_namespace;
 use mongodbanonymizer::masking;
 use mongodbanonymizer::models::{CollectionSchema, FieldSchema, MaskingConfig, TypeSchema};
 
@@ -580,4 +584,286 @@ fn test_noisy_date_deterministic() {
 fn test_unknown_method_returns_input_unchanged() {
     let output = masking::mask_value("NONEXISTENT_METHOD", "hello");
     assert_eq!(output, "hello");
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// `manon init` — run_init + read_conf
+// ──────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_run_init_creates_directory_structure() {
+    let root = tempfile::tempdir().expect("tmp dir");
+    let args = InitArgs {
+        project_cluster: root.path().to_path_buf(),
+        project_dbname: "mydb".to_owned(),
+        source_uri: None,
+        namespace: None,
+    };
+
+    run_init(args).expect("run_init should succeed");
+
+    assert!(
+        root.path().join("mydb/source/collections").is_dir(),
+        "source/collections dir must be created"
+    );
+    assert!(
+        root.path().join("mydb/config").is_dir(),
+        "config dir must be created"
+    );
+    assert!(
+        root.path().join("mydb/config/mydb.conf").is_file(),
+        "conf file must be created"
+    );
+}
+
+#[test]
+fn test_run_init_conf_contains_base_dir_and_project_dir() {
+    let root = tempfile::tempdir().expect("tmp dir");
+    let args = InitArgs {
+        project_cluster: root.path().to_path_buf(),
+        project_dbname: "testdb".to_owned(),
+        source_uri: Some("mongodb://localhost:27017".to_owned()),
+        namespace: Some("testdb.users".to_owned()),
+    };
+
+    run_init(args).expect("run_init should succeed");
+
+    let conf =
+        std::fs::read_to_string(root.path().join("testdb/config/testdb.conf")).expect("read conf");
+    assert!(conf.contains("BASE_DIR"), "conf must contain BASE_DIR");
+    assert!(
+        conf.contains("PROJECT_DIR"),
+        "conf must contain PROJECT_DIR"
+    );
+    assert!(
+        conf.contains("URI = mongodb://localhost:27017"),
+        "conf must contain the URI"
+    );
+    assert!(
+        conf.contains("NAMESPACE = testdb.users"),
+        "conf must contain the NAMESPACE"
+    );
+}
+
+#[test]
+fn test_run_init_without_uri_writes_comment() {
+    let root = tempfile::tempdir().expect("tmp dir");
+    let args = InitArgs {
+        project_cluster: root.path().to_path_buf(),
+        project_dbname: "nouri".to_owned(),
+        source_uri: None,
+        namespace: None,
+    };
+
+    run_init(args).expect("run_init should succeed");
+
+    let conf =
+        std::fs::read_to_string(root.path().join("nouri/config/nouri.conf")).expect("read conf");
+    assert!(
+        conf.contains("# URI"),
+        "URI should be commented out when not provided"
+    );
+}
+
+#[test]
+fn test_read_conf_parses_all_fields() {
+    let dir = tempfile::tempdir().expect("tmp dir");
+    let conf_path = dir.path().join("test.conf");
+    std::fs::write(
+        &conf_path,
+        "BASE_DIR = /data/clusters\nPROJECT_DIR = mydb\nURI = mongodb://host:27017\nNAMESPACE = mydb.users\nNUMBER = 500\nPERCENT = 25\n",
+    )
+    .expect("write conf");
+
+    let conf = read_conf(&conf_path).expect("read_conf should succeed");
+
+    assert_eq!(conf.base_dir, std::path::PathBuf::from("/data/clusters"));
+    assert_eq!(conf.project_dir, "mydb");
+    assert_eq!(conf.uri.as_deref(), Some("mongodb://host:27017"));
+    assert_eq!(conf.namespace.as_deref(), Some("mydb.users"));
+    assert_eq!(conf.number, Some(500));
+    assert_eq!(conf.percent, Some(25.0));
+}
+
+#[test]
+fn test_read_conf_ignores_commented_lines() {
+    let dir = tempfile::tempdir().expect("tmp dir");
+    let conf_path = dir.path().join("test.conf");
+    std::fs::write(
+        &conf_path,
+        "BASE_DIR = /data/clusters\nPROJECT_DIR = mydb\n# URI = mongodb://ignored\n# NUMBER = 999\n",
+    )
+    .expect("write conf");
+
+    let conf = read_conf(&conf_path).expect("read_conf should succeed");
+
+    assert!(conf.uri.is_none(), "commented URI must not be parsed");
+    assert!(conf.number.is_none(), "commented NUMBER must not be parsed");
+}
+
+#[test]
+fn test_read_conf_missing_base_dir_returns_error() {
+    let dir = tempfile::tempdir().expect("tmp dir");
+    let conf_path = dir.path().join("bad.conf");
+    std::fs::write(&conf_path, "PROJECT_DIR = mydb\n").expect("write conf");
+
+    assert!(
+        read_conf(&conf_path).is_err(),
+        "missing BASE_DIR should produce an error"
+    );
+}
+
+#[test]
+fn test_read_conf_missing_project_dir_returns_error() {
+    let dir = tempfile::tempdir().expect("tmp dir");
+    let conf_path = dir.path().join("bad.conf");
+    std::fs::write(&conf_path, "BASE_DIR = /data/clusters\n").expect("write conf");
+
+    assert!(
+        read_conf(&conf_path).is_err(),
+        "missing PROJECT_DIR should produce an error"
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// `manon mask` — run_mask
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Build a minimal YAML schema string with a String field that has sampled values
+/// and an email masking rule — as `manon infer` would produce.
+fn make_schema_yaml_with_email(email: &str) -> String {
+    format!(
+        r#"count: 1
+sampled: 1
+object:
+  email:
+    probability: 1.0
+    types:
+      String:
+        probability: 1.0
+        sampled: 1
+        as_jsonb: false
+        masking:
+          enabled: true
+          method: MASK_CONTACT_URI
+        values:
+          - "{email}"
+"#
+    )
+}
+
+#[test]
+fn test_run_mask_masks_values_in_place() {
+    let dir = tempfile::tempdir().expect("tmp dir");
+    let yaml_path = dir.path().join("schema.yaml");
+
+    std::fs::write(&yaml_path, make_schema_yaml_with_email("alice@example.com"))
+        .expect("write yaml");
+
+    let args = MaskArgs {
+        input: yaml_path.clone(),
+        output: None,
+    };
+    run_mask(args).expect("run_mask should succeed");
+
+    let result = std::fs::read_to_string(&yaml_path).expect("read result");
+    assert!(
+        !result.contains("alice"),
+        "original local part must not appear after masking:\n{result}"
+    );
+    assert!(
+        result.contains('@'),
+        "masked email must still contain @:\n{result}"
+    );
+}
+
+#[test]
+fn test_run_mask_writes_to_output_path() {
+    let dir = tempfile::tempdir().expect("tmp dir");
+    let input_path = dir.path().join("input.yaml");
+    let output_path = dir.path().join("output.yaml");
+
+    std::fs::write(&input_path, make_schema_yaml_with_email("bob@example.com"))
+        .expect("write yaml");
+
+    let args = MaskArgs {
+        input: input_path.clone(),
+        output: Some(output_path.clone()),
+    };
+    run_mask(args).expect("run_mask should succeed");
+
+    // Input file must be unchanged
+    let input_content = std::fs::read_to_string(&input_path).expect("read input");
+    assert!(
+        input_content.contains("bob@example.com"),
+        "input file must not be modified when --output is given"
+    );
+
+    // Output file must contain masked value
+    let output_content = std::fs::read_to_string(&output_path).expect("read output");
+    assert!(
+        !output_content.contains("bob"),
+        "output must not contain original local part:\n{output_content}"
+    );
+}
+
+#[test]
+fn test_run_mask_nonexistent_file_returns_error() {
+    let args = MaskArgs {
+        input: std::path::PathBuf::from("/nonexistent/path/schema.yaml"),
+        output: None,
+    };
+    assert!(
+        run_mask(args).is_err(),
+        "run_mask on a missing file must return an error"
+    );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// `helpers` — parse_namespace
+// ──────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_parse_namespace_valid_db_collection() {
+    let (db, coll) = parse_namespace("mydb.users").expect("should parse");
+    assert_eq!(db, "mydb");
+    assert_eq!(coll, "users");
+}
+
+#[test]
+fn test_parse_namespace_splits_on_first_dot_only() {
+    // A collection name that itself contains a dot (edge case)
+    let (db, coll) = parse_namespace("mydb.my.collection").expect("should parse");
+    assert_eq!(db, "mydb");
+    assert_eq!(coll, "my.collection");
+}
+
+#[test]
+fn test_parse_namespace_no_dot_returns_error() {
+    assert!(
+        parse_namespace("mydb").is_err(),
+        "namespace without a dot must return an error"
+    );
+}
+
+#[test]
+fn test_parse_namespace_empty_string_returns_error() {
+    assert!(
+        parse_namespace("").is_err(),
+        "empty namespace must return an error"
+    );
+}
+
+#[test]
+fn test_parse_namespace_leading_dot_gives_empty_db() {
+    let (db, coll) = parse_namespace(".users").expect("should parse");
+    assert_eq!(db, "");
+    assert_eq!(coll, "users");
+}
+
+#[test]
+fn test_parse_namespace_trailing_dot_gives_empty_collection() {
+    let (db, coll) = parse_namespace("mydb.").expect("should parse");
+    assert_eq!(db, "mydb");
+    assert_eq!(coll, "");
 }
