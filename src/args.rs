@@ -126,6 +126,11 @@ pub struct ApplyArgs {
     #[arg(long = "target-namespace")]
     pub target_namespace: Option<String>,
 
+    /// Export only this percentage of each source collection, e.g. 10 for 10%.
+    /// Useful for ephemeral environments where a full copy is not needed.
+    #[arg(short = 'p', long = "percent", value_parser = clap::value_parser!(f64))]
+    pub percent: Option<f64>,
+
     /// Path to a .conf file (created by `manon init`) to supply source-uri and namespace
     #[arg(short = 'c', long = "config")]
     pub config: Option<PathBuf>,
