@@ -54,6 +54,42 @@ manon infer --source-uri  <mongodb-uri>
     `--source-uri` is required unless a `--config` file is provided that
     contains a `source_uri` value.
 
+!!! note "Sampled `values` in the YAML"
+    For every masked field the YAML contains a `values` list of up to **20**
+    reservoir-sampled documents.  These values are **already anonymized**:
+    they show what the field will look like after `manon apply` runs, not the
+    raw production content.  They serve as a preview — a quick way to check
+    that the chosen masking method produces plausible output before touching
+    the real collection.
+
+    Use `manon mask` to refresh these samples after editing the YAML.
+
+!!! note "Mixed types and `probability`"
+    MongoDB is schemaless: the **same field can hold different BSON types** in
+    different documents (e.g. a `price` field that is a `Number` in most
+    documents but a `String` in a few legacy ones).  The YAML schema reflects
+    this by listing every observed type under `types:`, each with a
+    `probability` that indicates how often that type appears across the sampled
+    documents.
+
+    ```yaml
+    price:
+      probability: 0.98        # field present in 98 % of documents
+      types:
+        Number:
+          probability: 0.95    # 95 % of occurrences are a number
+          masking:
+            enabled: false
+        String:
+          probability: 0.05    # 5 % are a string (legacy data)
+          masking:
+            enabled: true
+            method: REDACT_ALPHANUMERIC
+    ```
+
+    A masking rule can therefore be enabled on one type and disabled on
+    another, giving fine-grained control over mixed-type fields.
+
 ---
 
 ## `manon mask`
